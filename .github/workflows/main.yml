@@ -1,25 +1,67 @@
-# hello-world.yaml
-name: Hello World!
+#deploy.yaml
+name: CI
 
 on:
   push:
-  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP_NAME: github-action-bicep-rg
+  RESOURCE_GROUP_LOCATION: westeurope
+  ENV_NAME: devd4
 
 jobs:
-  greet:
+  deploy-infra:
+    runs-on: ubuntu-latest
+    # The output can be read from other jobs that depend on this one
+    outputs:
+      webAppName: ${{ steps.infra.outputs.webAppName }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: Azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create ResourceGroup
+        run: >
+          az group create
+          -l ${{ env.RESOURCE_GROUP_LOCATION }}
+          -n ${{ env.RESOURCE_GROUP_NAME }}
+
+      - uses: azure/arm-deploy@v1
+        id: infra
+        with:
+          resourceGroupName: ${{ env.RESOURCE_GROUP_NAME }}
+          template: ./infra.bicep
+          parameters: env=${{ env.ENV_NAME }}
+
+      - name: Print WebApp endpoint
+        run: echo https://${{ steps.infra.outputs.webAppEndpoint }}
+
+  deploy-webapp:
+    needs: [deploy-infra]
     runs-on: ubuntu-latest
 
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Send a hello world
-        uses: actions/github-script@v4.0.2
+      - uses: actions/checkout@v2
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v2.2.0
         with:
-          script: |
-            github.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: "Hello World! 👋",
-              body: "Hello 🌍 from GitHub Actions!"
-            });
+          node-version: 12.x
+
+      - name: Npm install
+        run: npm ci
+
+      - name: Azure Login
+        uses: Azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Azure WebApp
+        uses: Azure/webapps-deploy@v2
+        with:
+          # We reference the webAppName output of the deploy-infra job
+          app-name: ${{ needs.deploy-infra.outputs.webAppName }}
+          startup-command: npm start
