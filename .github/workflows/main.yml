@@ -52,7 +52,7 @@ jobs:
           node-version: 12.x
 
       - name: Npm install
-        run: npm ci
+        run: npm install
 
       - name: Azure Login
         uses: Azure/login@v1
